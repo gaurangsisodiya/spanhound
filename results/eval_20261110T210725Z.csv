@@ -1,0 +1,28 @@
+incident,run,signal,expected,predicted,correct,grounded,correct_and_grounded,confidence,tool_calls,prompt_tokens,completion_tokens,seconds,provider_retries,stopped_by,cause
+catalog_starvation,1,latency,product-catalog,product-catalog,True,True,True,0.96,2,3582,2456,87.4,1,answer,"product-catalog service is timing out and extremely slow, causing product page latency"
+catalog_starvation,2,latency,product-catalog,product-catalog,True,False,False,0.96,2,3582,3258,62.3,1,answer,Product pages are slow due to repeated deadline‑exceeded errors and extremely high latency in product‑catalog’s GetProduct and ListProducts operations.
+catalog_starvation,3,latency,product-catalog,product-catalog,True,True,True,0.96,2,3582,2623,67.2,1,answer,"product-catalog service is timing out and extremely slow, causing product page latency"
+baseline_1,1,none,none,none,True,True,True,1.0,2,3082,2155,24.1,0,answer,No error origins and no operations marked as [SLOW] in the given window.
+baseline_1,2,none,none,none,True,True,True,1.0,2,3082,1901,18.9,0,answer,No error origins and no operations marked as [SLOW] in the given window.
+baseline_1,3,none,none,none,True,True,True,1.0,2,3082,2181,22.8,0,answer,No error origins and no operations marked as [SLOW] in the given window.
+paymentFailure,1,errors,payment,payment,True,True,True,0.97,1,1859,1677,52.8,1,answer,Internal errors in the payment service (invalid token) caused checkout failures.
+paymentFailure,2,errors,payment,payment,True,True,True,0.97,1,1859,1334,22.0,0,answer,Internal errors in the payment service caused checkout failures.
+paymentFailure,3,errors,payment,payment,True,True,True,0.96,1,1859,1158,11.5,0,answer,Payment service returned internal errors (invalid token) during checkout.
+baseline_2,1,none,none,none,True,True,True,1.0,2,3058,2510,28.8,0,answer,No error origins and no operations marked as [SLOW] in the given window.
+baseline_2,2,none,none,none,True,True,True,1.0,2,3058,1666,19.8,0,answer,No error origins and no operations marked as [SLOW] in the given window.
+baseline_2,3,none,none,none,True,True,True,1.0,2,3058,1531,18.1,0,answer,No error origins and no operations marked as [SLOW] in the given window.
+cartFailure,1,errors,cart,cart,True,True,True,0.96,1,1904,1404,72.9,1,answer,"Cart service failed to access its Redis storage, causing checkout to hang and time out."
+cartFailure,2,errors,cart,cart,True,True,True,0.96,1,1904,1570,53.1,0,answer,Cart service failed to access its storage due to a Redis connection error
+cartFailure,3,errors,cart,cart,True,True,True,0.96,1,1904,2497,41.3,0,answer,"Cart service failed to access its Redis storage, causing a FailedPrecondition error."
+productCatalogFailure,1,errors,product-catalog,product-catalog,True,True,True,0.97,1,1862,1241,52.6,1,answer,Product catalog service returned errors when fetching product details
+productCatalogFailure,2,errors,product-catalog,product-catalog,True,True,True,0.96,1,1862,1987,92.2,1,answer,"Product catalog service returned errors due to a failing feature flag, causing product pages to lack details."
+productCatalogFailure,3,errors,product-catalog,product-catalog,True,True,True,0.96,1,1862,1169,56.8,1,answer,"Product catalog service returned errors due to a failing feature flag, causing product pages to lack details."
+paymentUnreachable,1,errors,payment,payment,True,True,True,0.95,1,1870,1370,44.7,1,answer,"Checkout fails because the checkout service's client call to the payment service (Charge) encounters a name resolver error, indicating the payment service is unavailable."
+paymentUnreachable,2,errors,payment,payment,True,True,True,0.96,3,4499,3142,65.2,1,answer,"Payment service could not be resolved, causing checkout failures"
+paymentUnreachable,3,errors,payment,payment,True,True,True,0.96,3,4499,3121,53.7,1,answer,"Payment service name resolution failed, causing checkout to be unable to charge cards"
+intlShippingSlowdown,1,latency,shipping,shipping,True,True,True,0.9,2,3082,2238,48.8,0,answer,"The shipping service's ship-order endpoint is slow, exceeding 10 seconds, causing order completion delays."
+intlShippingSlowdown,2,latency,shipping,shipping,True,True,True,0.9,2,3082,2668,34.3,0,answer,"The shipping service's ship-order endpoint exceeds the 10‑second threshold, causing order latency."
+intlShippingSlowdown,3,latency,shipping,shipping,True,True,True,0.9,2,3082,2312,18.2,0,answer,"The shipping service's POST /ship-order operation exceeded 10 seconds, causing order completion delays."
+adFailure,1,errors,ad,ad,True,True,True,0.96,1,1858,1406,15.4,0,answer,Internal errors in the ad service (Server spans without status messages) caused occasional browsing errors.
+adFailure,2,errors,ad,ad,True,True,True,0.97,1,1858,1208,9.5,0,answer,The ad service returned server errors during the window.
+adFailure,3,errors,ad,ad,True,True,True,0.96,3,4571,3146,38.6,0,answer,"The Ad service returned UNAVAILABLE errors for GetAds calls, causing browsing failures."

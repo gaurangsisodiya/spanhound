@@ -72,3 +72,14 @@ def test_load_rows_rejects_wrong_columns(tmp_path):
 
     with pytest.raises(SystemExit):
         run_eval.load_rows(path)
+
+
+def test_ungrounded_quotes_round_trip(tmp_path):
+    path = tmp_path / "eval_test.csv"
+    quotes = ["inventory-service: timeout", 'a "quoted", text']
+    run_eval.append_row(path, row("paymentFailure", 1, ungrounded_quotes=run_eval.json.dumps(quotes)))
+
+    rows = run_eval.load_rows(path)
+
+    assert rows[0]["ungrounded_quotes"] == quotes
+    assert "inventory-service: timeout" in run_eval.ungrounded_section(rows)

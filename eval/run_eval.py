@@ -7,6 +7,7 @@ Example:
 
 import argparse
 import csv
+import json
 import math
 import os
 import statistics
@@ -25,7 +26,7 @@ RUNS_DIR = ROOT / "runs"
 
 COLUMNS = [
     "incident", "run", "signal", "expected", "predicted", "correct", "grounded",
-    "correct_and_grounded", "confidence", "tool_calls", "prompt_tokens",
+    "correct_and_grounded", "ungrounded_quotes", "confidence", "tool_calls", "prompt_tokens",
     "completion_tokens", "seconds", "provider_retries", "stopped_by", "cause",
 ]
 
@@ -71,35 +72,32 @@ def git_commit() -> str:
     return f"{commit} (uncommitted changes)" if git("status", "--porcelain") else commit
 
 
-def run_once(incident: dict, run: int, log_dir: Path) -> dict:
+def safe_investigate(alert: str, start: str, end: str, log_path: Path) -> dict:
+    """investigate(), but a crash becomes an "exception" result instead of ending the eval."""
     from sentinel.agent import investigate
 
-    expected = incident["expected_service"]
     try:
-        result = investigate(
-            incident["alert"],
-            incident["start"],
-            incident["end"],
-            log_path=str(log_dir / f"{incident['name']}_{run}.jsonl"),
-        )
-    except Exception as exc:  # a crash in one run must not end the whole eval
-        result = {
+        return investigate(alert, start, end, log_path=str(log_path))
+    except Exception as exc:
+        return {
             "suspected_service": "error", "cause": f"{type(exc).__name__}: {exc}"[:300],
-            "grounded": False, "confidence": 0, "tool_calls": 0, "prompt_tokens": 0,
-            "completion_tokens": 0, "seconds": 0, "provider_retries": 0, "stopped_by": "exception",
+            "grounded": False, "ungrounded_quotes": [], "confidence": 0, "tool_calls": 0,
+            "prompt_tokens": 0, "completion_tokens": 0, "seconds": 0, "provider_retries": 0,
+            "stopped_by": "exception",
         }
 
+
+def scored_fields(result: dict, expected: str) -> dict:
+    """The CSV fields that come from one investigate() result."""
     predicted = result["suspected_service"]
     correct = predicted == expected
     return {
-        "incident": incident["name"],
-        "run": run,
-        "signal": incident["signal"],
         "expected": expected,
         "predicted": predicted,
         "correct": correct,
         "grounded": result["grounded"],
         "correct_and_grounded": correct and result["grounded"],
+        "ungrounded_quotes": json.dumps(result.get("ungrounded_quotes", [])),
         "confidence": result["confidence"],
         "tool_calls": result["tool_calls"],
         "prompt_tokens": result["prompt_tokens"],
@@ -108,6 +106,19 @@ def run_once(incident: dict, run: int, log_dir: Path) -> dict:
         "provider_retries": result["provider_retries"],
         "stopped_by": result["stopped_by"],
         "cause": result["cause"],
+    }
+
+
+def run_once(incident: dict, run: int, log_dir: Path) -> dict:
+    result = safe_investigate(
+        incident["alert"], incident["start"], incident["end"],
+        log_dir / f"{incident['name']}_{run}.jsonl",
+    )
+    return {
+        "incident": incident["name"],
+        "run": run,
+        "signal": incident["signal"],
+        **scored_fields(result, incident["expected_service"]),
     }
 
 
@@ -185,11 +196,11 @@ FLOAT_COLUMNS = ("seconds",)
 BOOL_COLUMNS = ("correct", "grounded", "correct_and_grounded")
 
 
-def append_row(path: Path, row: dict) -> None:
+def append_row(path: Path, row: dict, columns: list[str] = COLUMNS) -> None:
     """Append one row and flush it to disk; write the header if the file is new or empty."""
     new_file = not path.exists() or path.stat().st_size == 0
     with path.open("a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=COLUMNS)
+        writer = csv.DictWriter(f, fieldnames=columns)
         if new_file:
             writer.writeheader()
         writer.writerow(row)
@@ -197,13 +208,13 @@ def append_row(path: Path, row: dict) -> None:
         os.fsync(f.fileno())
 
 
-def load_rows(path: Path) -> list[dict]:
+def load_rows(path: Path, columns: list[str] = COLUMNS) -> list[dict]:
     """Rows from a results CSV, with numbers and booleans turned back into Python values."""
     if not path.exists() or path.stat().st_size == 0:
         return []
     with path.open(newline="") as f:
         reader = csv.DictReader(f)
-        if reader.fieldnames != COLUMNS:
+        if reader.fieldnames != columns:
             sys.exit(f"{path} does not have the expected columns:\n  {reader.fieldnames}")
         rows = list(reader)
     for row in rows:
@@ -213,7 +224,20 @@ def load_rows(path: Path) -> list[dict]:
             row[key] = float(row[key])
         for key in BOOL_COLUMNS:
             row[key] = row[key] == "True"
+        row["ungrounded_quotes"] = json.loads(row["ungrounded_quotes"] or "[]")
     return rows
+
+
+def ungrounded_section(rows: list[dict]) -> str:
+    """Markdown list of every ungrounded quote, by run, or a line saying there were none."""
+    lines = []
+    for row in rows:
+        for quote in row["ungrounded_quotes"]:
+            lines.append(
+                f"- {row['incident']} run {row['run']} (predicted {row['predicted']}): "
+                f"`{' '.join(str(quote).split())}`"
+            )
+    return "\n".join(lines) or "None."
 
 
 def remaining_runs(incidents: list[dict], runs: int, done_rows: list[dict]) -> list[tuple[dict, int]]:
@@ -242,6 +266,8 @@ def write_markdown(csv_path: Path, runs: int, log_dir: Path) -> tuple[Path, str]
             ("Incident", "Expected", "Correct", "Predictions"),
             per_incident_rows(rows, read_incidents(None), runs),
         ),
+        "## Ungrounded quotes",
+        ungrounded_section(rows),
         "## Setup",
         "\n".join([
             f"- Model: {model}",
