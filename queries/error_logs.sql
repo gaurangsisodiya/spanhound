@@ -6,7 +6,7 @@ SELECT
     anyIf(TraceId, TraceId != '') AS example_trace
 FROM otel.otel_logs
 WHERE Timestamp >= {start:DateTime} AND Timestamp < {end:DateTime}
-  AND SeverityNumber >= 17
+  AND SeverityNumber >= 13
   AND ServiceName != 'otelcol-contrib'
 GROUP BY ServiceName, pattern
 ORDER BY n DESC
