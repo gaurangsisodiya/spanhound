@@ -15,6 +15,7 @@
             <networks><ip>::/0</ip></networks>
             <grants>
                 <query>GRANT SELECT ON otel.*</query>
+                <query>GRANT SELECT ON otel_test.*</query>
             </grants>
         </sentinel_ro>
     </users>
