@@ -12,3 +12,7 @@
 - error_logs filters SeverityNumber >= 17, not SeverityText (spellings vary by language). Unlabelled lines are Envoy access logs and database logs, already covered by traces.
 - Table names in queries are unqualified; the database comes from SENTINEL_CH_DATABASE so tests can use a separate otel_test database.
 - error_origins breaks count ties by preferring origins with an error message.
+- The agent runs only the first tool call per reply: gpt-oss-120b on Together wrote imaginary tool calls and results in one reply, and the server ignores parallel_tool_calls=False.
+- Evidence quotes are checked against real tool outputs (grounded flag); this caught a fabricated "inventory-service" diagnosis.
+- suspected_service is normalized to a known service list.
+- "Harmony parsing failed" errors are retried at temperature 0.3, up to twice; remaining failures are recorded as provider errors, not crashes.
