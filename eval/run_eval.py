@@ -121,9 +121,15 @@ def rate(hits: int, total: int) -> str:
     return f"{hits}/{total} ({hits / total:.0%})" if total else "n/a (no runs)"
 
 
+def is_provider_error(row: dict) -> bool:
+    """The run ended on a model provider failure (or a crash), not on an answer."""
+    return row["stopped_by"] in ("provider_error", "exception")
+
+
 def summary_rows(rows: list[dict]) -> list[tuple[str, str]]:
     faults = [r for r in rows if r["expected"] != "none"]
     baselines = [r for r in rows if r["expected"] == "none"]
+    answered_faults = [r for r in faults if not is_provider_error(r)]
     seconds = [r["seconds"] for r in rows]
     tokens = [r["prompt_tokens"] + r["completion_tokens"] for r in rows]
 
@@ -138,14 +144,17 @@ def summary_rows(rows: list[dict]) -> list[tuple[str, str]]:
         cost = "not set (SENTINEL_PRICE_IN / SENTINEL_PRICE_OUT)"
 
     return [
-        ("Fault accuracy", rate(sum(r["correct"] for r in faults), len(faults))),
-        ("False-alarm rate", rate(sum(r["predicted"] != "none" for r in baselines), len(baselines))),
+        ("Fault accuracy, all fault runs", rate(sum(r["correct"] for r in faults), len(faults))),
+        ("Fault accuracy, excluding provider errors",
+         rate(sum(r["correct"] for r in answered_faults), len(answered_faults))),
+        ("False-alarm rate (baseline blamed a service)",
+         rate(sum(r["predicted"] not in ("none", "error") for r in baselines), len(baselines))),
         ("Correct and grounded", rate(sum(r["correct_and_grounded"] for r in rows), len(rows))),
         ("Mean seconds", f"{statistics.mean(seconds):.1f}"),
         ("p95 seconds", f"{p95(seconds):.1f}"),
         ("Mean tokens per run", f"{statistics.mean(tokens):,.0f}"),
         ("Mean tool calls", f"{statistics.mean(r['tool_calls'] for r in rows):.1f}"),
-        ("Provider errors", str(sum(r["stopped_by"] in ("provider_error", "exception") for r in rows))),
+        ("Provider errors", rate(sum(is_provider_error(r) for r in rows), len(rows))),
         ("Estimated cost per run", cost),
     ]
 
@@ -160,6 +169,8 @@ def per_incident_rows(rows: list[dict], incidents: list[dict], runs: int) -> lis
     table = []
     for incident in incidents:
         mine = [r for r in rows if r["incident"] == incident["name"]]
+        if not mine:
+            continue
         seen = Counter(r["predicted"] for r in mine)
         predictions = ", ".join(f"{name} x{n}" for name, n in seen.most_common())
         table.append((
@@ -169,35 +180,124 @@ def per_incident_rows(rows: list[dict], incidents: list[dict], runs: int) -> lis
     return table
 
 
+INT_COLUMNS = ("run", "tool_calls", "prompt_tokens", "completion_tokens", "provider_retries")
+FLOAT_COLUMNS = ("seconds",)
+BOOL_COLUMNS = ("correct", "grounded", "correct_and_grounded")
+
+
+def append_row(path: Path, row: dict) -> None:
+    """Append one row and flush it to disk; write the header if the file is new or empty."""
+    new_file = not path.exists() or path.stat().st_size == 0
+    with path.open("a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=COLUMNS)
+        if new_file:
+            writer.writeheader()
+        writer.writerow(row)
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def load_rows(path: Path) -> list[dict]:
+    """Rows from a results CSV, with numbers and booleans turned back into Python values."""
+    if not path.exists() or path.stat().st_size == 0:
+        return []
+    with path.open(newline="") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames != COLUMNS:
+            sys.exit(f"{path} does not have the expected columns:\n  {reader.fieldnames}")
+        rows = list(reader)
+    for row in rows:
+        for key in INT_COLUMNS:
+            row[key] = int(row[key])
+        for key in FLOAT_COLUMNS:
+            row[key] = float(row[key])
+        for key in BOOL_COLUMNS:
+            row[key] = row[key] == "True"
+    return rows
+
+
+def remaining_runs(incidents: list[dict], runs: int, done_rows: list[dict]) -> list[tuple[dict, int]]:
+    """(incident, run number) pairs still to do, skipping pairs already in done_rows."""
+    done = {(row["incident"], int(row["run"])) for row in done_rows}
+    return [
+        (incident, run)
+        for incident in incidents
+        for run in range(1, runs + 1)
+        if (incident["name"], run) not in done
+    ]
+
+
+def write_markdown(csv_path: Path, runs: int, log_dir: Path) -> tuple[Path, str]:
+    """Build the .md report from every row in the CSV. Returns (path, summary table)."""
+    rows = load_rows(csv_path)
+    summary = markdown_table(("Metric", "Value"), summary_rows(rows))
+    model = os.getenv("SENTINEL_MODEL", "openai/gpt-oss-120b")  # same default as agent.py
+    temperature = os.getenv("SENTINEL_TEMPERATURE", "0")
+    md = "\n\n".join([
+        f"# {csv_path.stem.replace('_', ' ').capitalize()}",
+        "## Summary",
+        summary,
+        "## Per incident",
+        markdown_table(
+            ("Incident", "Expected", "Correct", "Predictions"),
+            per_incident_rows(rows, read_incidents(None), runs),
+        ),
+        "## Setup",
+        "\n".join([
+            f"- Model: {model}",
+            f"- Temperature: {temperature}",
+            f"- Runs per incident: {runs}",
+            f"- Date (UTC): {datetime.now(UTC):%Y-%m-%d %H:%M}",
+            f"- Commit: {git_commit()}",
+            f"- Step logs: {log_dir.relative_to(ROOT)}",
+        ]),
+    ]) + "\n"
+    md_path = csv_path.with_suffix(".md")
+    md_path.write_text(md)
+    return md_path, summary
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the offline evaluation.")
     parser.add_argument("--runs", type=int, default=3, help="Runs per incident (default 3)")
     parser.add_argument("--only", help="Comma-separated incident names")
     parser.add_argument("--out", default=str(ROOT / "results"), help="Output directory (default results/)")
+    parser.add_argument("--resume", help="Existing results CSV to continue: skips runs already in it")
     args = parser.parse_args()
 
     load_dotenv(ROOT / ".env")
     incidents = read_incidents(args.only)
-    use_readonly_test_db()
 
-    from sentinel.fixtures import admin_client, create_test_tables, fixture_loader
+    if args.resume:
+        csv_path = Path(args.resume)
+        if not csv_path.exists():
+            sys.exit(f"--resume: {csv_path} does not exist")
+    else:
+        out_dir = Path(args.out)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = out_dir / f"eval_{datetime.now(UTC):%Y%m%dT%H%M%SZ}.csv"
+    log_dir = RUNS_DIR / csv_path.stem  # a resumed eval keeps its step logs together
 
-    admin = admin_client()
-    create_test_tables(admin)
-    load = fixture_loader(admin)
+    todo = remaining_runs(incidents, args.runs, load_rows(csv_path))
+    planned = len(incidents) * args.runs
+    print(f"{planned - len(todo)} of {planned} runs already done, {len(todo)} remaining. Results: {csv_path}")
 
-    stamp = f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}"
-    log_dir = RUNS_DIR / f"eval_{stamp}"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    out_dir = Path(args.out)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if todo:
+        use_readonly_test_db()
+        from sentinel.fixtures import admin_client, create_test_tables, fixture_loader
 
-    rows = []
-    for incident in incidents:
-        load(incident["name"])
-        for run in range(1, args.runs + 1):
+        admin = admin_client()
+        create_test_tables(admin)
+        load = fixture_loader(admin)
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        loaded = None
+        for incident, run in todo:
+            if incident["name"] != loaded:
+                load(incident["name"])
+                loaded = incident["name"]
             row = run_once(incident, run, log_dir)
-            rows.append(row)
+            append_row(csv_path, row)
             verdict = "correct" if row["correct"] else f"WRONG (expected {row['expected']})"
             print(
                 f"{incident['name']} run {run}/{args.runs}: {row['predicted']} {verdict}, "
@@ -205,37 +305,9 @@ def main() -> None:
                 flush=True,
             )
 
-    csv_path = out_dir / f"eval_{stamp}.csv"
-    with csv_path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=COLUMNS)
-        writer.writeheader()
-        writer.writerows(rows)
-
-    summary = markdown_table(("Metric", "Value"), summary_rows(rows))
-    model = os.getenv("SENTINEL_MODEL", "openai/gpt-oss-120b")  # same default as agent.py
-    temperature = os.getenv("SENTINEL_TEMPERATURE", "0")
-    md = "\n\n".join([
-        f"# Eval {stamp}",
-        "## Summary",
-        summary,
-        "## Per incident",
-        markdown_table(
-            ("Incident", "Expected", "Correct", "Predictions"),
-            per_incident_rows(rows, incidents, args.runs),
-        ),
-        "## Setup",
-        "\n".join([
-            f"- Model: {model}",
-            f"- Temperature: {temperature}",
-            f"- Runs per incident: {args.runs}",
-            f"- Date (UTC): {datetime.now(UTC):%Y-%m-%d %H:%M}",
-            f"- Commit: {git_commit()}",
-            f"- Step logs: {log_dir.relative_to(ROOT)}",
-        ]),
-    ]) + "\n"
-    md_path = out_dir / f"eval_{stamp}.md"
-    md_path.write_text(md)
-
+    if not load_rows(csv_path):
+        sys.exit("No runs recorded, so no report written.")
+    md_path, summary = write_markdown(csv_path, args.runs, log_dir)
     print()
     print(summary)
     print(f"\nWrote {csv_path} and {md_path}")

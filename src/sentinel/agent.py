@@ -100,9 +100,10 @@ How to read the evidence:
    are time spent waiting on the called service, so point at that service.
 6. error_logs is supporting evidence only. Callers often log their callee's
    failure. Use its trace ids with get_trace to confirm the real origin.
-7. If error_origins finds nothing and no operation in slow_operations is
-   unusually slow (all well under one second), the answer is "none". Never
-   blame a service without evidence.
+7. Only operations marked [SLOW] count as slowness. If error_origins finds no
+   errors and slow_operations marks nothing [SLOW], the answer is none, even if
+   some operations take a few hundred milliseconds. Never blame a service
+   without an error origin or a [SLOW] operation.
 8. Use the alert's time window unless you have a reason to narrow it.
 
 When you are done, reply with ONLY a JSON object, no other text.
@@ -124,7 +125,7 @@ def default_client():
     return openai.OpenAI(
         base_url="https://api.together.xyz/v1",
         api_key=os.environ["TOGETHER_API_KEY"],
-        timeout=60,
+        timeout=120,
         max_retries=2,
     )
 

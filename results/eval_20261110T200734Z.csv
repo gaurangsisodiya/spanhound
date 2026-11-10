@@ -1,0 +1,3 @@
+incident,run,signal,expected,predicted,correct,grounded,correct_and_grounded,confidence,tool_calls,prompt_tokens,completion_tokens,seconds,provider_retries,stopped_by,cause
+paymentFailure,1,errors,payment,payment,True,True,True,0.96,1,1805,1330,14.0,0,answer,Payment service returned an internal error: payment request failed due to an invalid token.
+baseline_2,1,none,none,none,True,True,True,0.97,2,2975,2307,30.4,0,answer,No error origins and no unusually slow operations were observed in the window.

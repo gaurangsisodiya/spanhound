@@ -2,6 +2,8 @@ import re
 
 from sentinel.db import check_window, run_query
 
+SLOW_MS = 1000  # p95 self time at or above this is marked [SLOW]
+
 TRACE_FIELDS = (
     "span_id", "parent_id", "service", "name", "kind",
     "ms", "status", "message", "exceptions",
@@ -34,18 +36,27 @@ def slow_operations(start: str, end: str, limit: int = 5) -> str:
     if not rows:
         return f"No operations found between {start} and {end} UTC."
 
-    lines = [f"Slowest operations {start} to {end} UTC, sorted by p95 self time:"]
+    lines = [
+        f"Slowest operations {start} to {end} UTC, sorted by p95 self time; operations "
+        f"at or above {SLOW_MS:,} ms p95 self time are marked [SLOW]:"
+    ]
+    any_slow = False
     for service, span, kind, count, total_ms, self_ms in rows[:limit]:
+        slow = self_ms >= SLOW_MS
+        any_slow = any_slow or slow
+        marker = "[SLOW] " if slow else ""
         note = ""
-        if kind == "Client":
+        if slow and kind == "Client":
             note = " [client call: this time was spent waiting on the called service]"
         unit = "span" if count == 1 else "spans"
         lines.append(
-            f"- {service} / {span}: p95 self {self_ms:,.0f} ms "
+            f"- {marker}{service} / {span}: p95 self {self_ms:,.0f} ms "
             f"(total {total_ms:,.0f} ms) over {count} {unit}{note}"
         )
     if len(rows) > limit:
         lines.append(f"... and {len(rows) - limit} more operations")
+    if not any_slow:
+        lines.append("No operation is marked [SLOW].")
     return "\n".join(lines)
 
 

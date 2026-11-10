@@ -16,3 +16,6 @@
 - Evidence quotes are checked against real tool outputs (grounded flag); this caught a fabricated "inventory-service" diagnosis.
 - suspected_service is normalized to a known service list.
 - "Harmony parsing failed" errors are retried at temperature 0.3, up to twice; remaining failures are recorded as provider errors, not crashes.
+- After editing infra/clickhouse/sentinel_ro.xml, recreate the container with infra/start_clickhouse.sh. Docker Desktop binds a single file, so an editor that rewrites the file breaks a plain restart.
+- Slowness is judged by a fixed 1,000 ms p95 self-time threshold in the tool, not by the model: with identical evidence the model answered none in one run and blamed checkout (about 370 ms) in another. The threshold fits this data (baselines under 400 ms, incidents 10 s and above); a real system would compare each operation to its own history.
+- Provider errors are scored separately from false alarms.

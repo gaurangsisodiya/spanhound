@@ -2,8 +2,9 @@ import re
 
 # error_origins: "- <service> / <span name> (<kind>) x<count>: <text>"
 ORIGIN_LINE = re.compile(r"^- (?P<service>.+?) / (?P<span>.*) \((?P<kind>\w+)\) x\d+:")
-# slow_operations: "- <service> / <span name>: p95 self ..." (no kind; Client rows carry a note)
-SLOW_LINE = re.compile(r"^- (?P<service>.+?) / (?P<span>.*?): p95 self ")
+# slow_operations: "- [SLOW] <service> / <span name>: p95 self ..." ([SLOW] optional;
+# no kind; Client rows carry a note)
+SLOW_LINE = re.compile(r"^- (?:\[SLOW\] )?(?P<service>.+?) / (?P<span>.*?): p95 self ")
 CLIENT_NOTE = "[client call:"
 
 
