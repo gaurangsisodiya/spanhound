@@ -4,7 +4,7 @@ SELECT
     count() AS n,
     min(Timestamp) AS first_seen,
     anyIf(TraceId, TraceId != '') AS example_trace
-FROM otel.otel_logs
+FROM otel_logs
 WHERE Timestamp >= {start:DateTime} AND Timestamp < {end:DateTime}
   AND SeverityNumber >= 13
   AND ServiceName != 'otelcol-contrib'

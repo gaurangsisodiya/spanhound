@@ -10,7 +10,7 @@ SELECT
     arrayStringConcat(
         arrayFilter(m -> m != '', arrayMap(a -> a['exception.message'], `Events.Attributes`)),
         ' | ') AS exceptions
-FROM otel.otel_traces
+FROM otel_traces
 WHERE TraceId = {trace_id:String}
 ORDER BY Timestamp
 LIMIT 200

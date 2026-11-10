@@ -10,3 +10,5 @@
 - Error text may be in Events (exception.message), not StatusMessage; evidence summaries must read both.
 - Logs are supporting evidence, not the primary signal: services choose what to log (productCatalogFailure: only the caller frontend logged an error; paymentFailure: no error log at all). error_logs returns an example TraceId per pattern so the agent can confirm in the trace.
 - error_logs filters SeverityNumber >= 17, not SeverityText (spellings vary by language). Unlabelled lines are Envoy access logs and database logs, already covered by traces.
+- Table names in queries are unqualified; the database comes from SENTINEL_CH_DATABASE so tests can use a separate otel_test database.
+- error_origins breaks count ties by preferring origins with an error message.

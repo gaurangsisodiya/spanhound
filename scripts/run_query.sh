@@ -6,5 +6,5 @@ if [ "$#" -lt 3 ]; then
   exit 1
 fi
 
-docker exec -i clickhouse clickhouse-client --password sentinel_dev \
+docker exec -i clickhouse clickhouse-client --password sentinel_dev --database otel \
   --param_start="$2" --param_end="$3" < "$1"

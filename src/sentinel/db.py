@@ -14,6 +14,7 @@ def get_client():
         port=int(os.getenv("SENTINEL_CH_PORT", "8123")),
         username=os.getenv("SENTINEL_CH_USER", "sentinel_ro"),
         password=os.getenv("SENTINEL_CH_PASSWORD", "sentinel_ro_dev"),
+        database=os.getenv("SENTINEL_CH_DATABASE", "otel"),
     )
 
 
