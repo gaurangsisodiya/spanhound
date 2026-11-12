@@ -19,3 +19,5 @@
 - After editing infra/clickhouse/sentinel_ro.xml, recreate the container with infra/start_clickhouse.sh. Docker Desktop binds a single file, so an editor that rewrites the file breaks a plain restart.
 - Slowness is judged by a fixed 1,000 ms p95 self-time threshold in the tool, not by the model: with identical evidence the model answered none in one run and blamed checkout (about 370 ms) in another. The threshold fits this data (baselines under 400 ms, incidents 10 s and above); a real system would compare each operation to its own history.
 - Provider errors are scored separately from false alarms.
+- The tools exclude load-generator: it is the traffic source, not part of the system. Its own failing calls to a service missing in minimal mode produced false origins and [SLOW] lines in the live eval.
+- Live eval waits for a quiet system before each run: cartFailure leaves cart slow (about 2.5 s GetCart) and losing redis for several minutes after the flag is off, which made control runs after it not real controls.

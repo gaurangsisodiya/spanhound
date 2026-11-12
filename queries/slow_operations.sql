@@ -17,6 +17,7 @@ LEFT JOIN children AS c ON s.TraceId = c.TraceId AND s.SpanId = c.parent_id
 WHERE s.Timestamp >= {start:DateTime} AND s.Timestamp < {end:DateTime}
   AND s.SpanName NOT LIKE '%EventStream%'
   AND s.ServiceName != 'frontend-web'
+  AND s.ServiceName != 'load-generator'
   AND s.SpanName NOT LIKE 'router flag%'
 GROUP BY s.ServiceName, s.SpanName, s.SpanKind
 ORDER BY p95_self_ms DESC

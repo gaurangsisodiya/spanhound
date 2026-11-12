@@ -176,3 +176,96 @@ def test_accuracy_over_observed_faults_and_unobserved_list():
     section = live_eval.unobserved_section(rows)
     assert "intlShippingSlowdown run 1" in section and "predicted none" in section
     assert "paymentFailure" not in section and "control" not in section
+
+
+QUIET_ORIGINS = "No error origins between 2026-11-12 16:00:00 and 2026-11-12 16:02:00 UTC."
+QUIET_SLOW = (
+    "Slowest operations ... are marked [SLOW]:\n"
+    "- frontend / GET: p95 self 120 ms (total 300 ms) over 40 spans\n"
+    "No operation is marked [SLOW]."
+)
+
+
+def test_assess_quiet_system():
+    assert live_eval.assess(QUIET_ORIGINS, QUIET_SLOW) == (True, "quiet")
+
+
+def test_assess_error_origin_is_not_quiet():
+    origins = "Error origins ... most frequent first:\n- cart / GetCart (Server) x12: redis down"
+    quiet, reason = live_eval.assess(origins, QUIET_SLOW)
+    assert not quiet and "cart / GetCart" in reason
+
+
+def test_assess_slow_line_is_not_quiet():
+    slow = "Slowest operations ...:\n- [SLOW] cart / oteldemo.CartService/GetCart: p95 self 2,500 ms (total 2,510 ms) over 30 spans"
+    quiet, reason = live_eval.assess(QUIET_ORIGINS, slow)
+    assert not quiet and reason.startswith("slow: cart / ")
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+def scripted_checks(*answers):
+    queue = list(answers)
+    return lambda: queue.pop(0)
+
+
+def test_settle_immediately_quiet():
+    clock = FakeClock()
+    assert live_eval.settle(scripted_checks((True, "quiet")), 600, sleep=clock.sleep, clock=clock) == (True, 0)
+
+
+def test_settle_after_two_minutes():
+    clock = FakeClock()
+    check = scripted_checks((False, "slow"), (False, "slow"), (True, "quiet"))
+    assert live_eval.settle(check, 600, sleep=clock.sleep, clock=clock) == (True, 120)
+
+
+def test_settle_gives_up_at_the_limit():
+    clock = FakeClock()
+    calls = []
+
+    def never_quiet():
+        calls.append(clock.now)
+        return False, "error origin"
+
+    settled, waited = live_eval.settle(never_quiet, 600, sleep=clock.sleep, clock=clock)
+
+    assert settled is False and waited == 600
+    assert calls == [60.0 * i for i in range(11)]  # checks at 0, 60, ..., 600 s
+
+
+def test_only_keeps_seeded_order():
+    schedule = live_eval.build_schedule(42)
+
+    chosen = live_eval.filter_schedule(schedule, "cartFailure, control")
+
+    assert chosen == [item for item in schedule if item[0] in ("cartFailure", "control")]
+    assert len(chosen) == 9
+    assert live_eval.filter_schedule(schedule, None) == schedule
+
+
+def test_only_rejects_unknown_names():
+    with pytest.raises(SystemExit):
+        live_eval.filter_schedule(live_eval.build_schedule(42), "paymentFailure,cartFailur")
+
+
+def test_unsettled_section_lists_only_unsettled_runs():
+    rows = [
+        {**live_row("control", 1, True, True, expected="none", predicted="cart"),
+         "settled": False, "settle_seconds": 600},
+        {**live_row("paymentFailure", 1, True, True), "settled": True, "settle_seconds": 60},
+    ]
+
+    section = live_eval.unsettled_section(rows)
+
+    assert "control run 1" in section and "waited 10.0 min" in section and "predicted cart" in section
+    assert "paymentFailure" not in section

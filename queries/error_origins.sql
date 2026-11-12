@@ -3,6 +3,7 @@ FROM otel_traces
 WHERE StatusCode = 'Error'
   AND Timestamp >= {start:DateTime} AND Timestamp < {end:DateTime}
   AND SpanName NOT LIKE '%EventStream%'
+  AND ServiceName != 'load-generator'
   -- no error span below it: nothing deeper failed
   AND (TraceId, SpanId) NOT IN (
       SELECT TraceId, ParentSpanId FROM otel_traces

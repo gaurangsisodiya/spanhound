@@ -7,5 +7,6 @@ FROM otel_traces
 WHERE Timestamp >= {start:DateTime}
   AND Timestamp <  {end:DateTime}
   AND SpanName NOT LIKE '%EventStream%'
+  AND ServiceName != 'load-generator'
 GROUP BY ServiceName
 ORDER BY error_pct DESC

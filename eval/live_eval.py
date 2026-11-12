@@ -8,6 +8,8 @@ Examples:
   uv run python eval/live_eval.py
   uv run python eval/live_eval.py --resume results/live_eval_<timestamp>.csv
   uv run python eval/live_eval.py --smoke intlShippingSlowdown
+  uv run python eval/live_eval.py --check-checkout-flag
+  uv run python eval/live_eval.py --only paymentFailure,control
 """
 
 import argparse
@@ -60,7 +62,15 @@ DEFAULT_LOADGEN = "http://localhost:8080/loadgen"
 DEFAULT_SHOP = "http://localhost:8080"
 SMOKE_ON_MINUTES = 2
 
-COLUMNS = ["flag", "variant", "start", "end", "fault_observed"] + EVAL_COLUMNS
+COLUMNS = [
+    "flag", "variant", "start", "end", "fault_observed", "settled", "settle_seconds",
+] + EVAL_COLUMNS
+
+SETTLE_INTERVAL_SECONDS = 60
+SETTLE_LOOKBACK = timedelta(minutes=2)
+FLAG_RELOAD_SECONDS = 5  # time for flagd to notice the edited file
+CHECK_POLL_SECONDS = 15
+CHECK_MAX_WAIT_SECONDS = 90
 
 # ---------------------------------------------------------------- international orders
 # intlShippingSlowdown only delays ship-order for non-US addresses, and only 1 of the
@@ -330,6 +340,66 @@ def wait(seconds: float, why: str) -> None:
     time.sleep(seconds)
 
 
+# ---------------------------------------------------------------- health gate
+# A run only starts on a quiet system: an earlier fault can linger after its flag is
+# off (cartFailure leaves cart slow and without redis for minutes), and a control run
+# on a recovering system is not a control.
+
+def assess(origins_output: str, slow_output: str) -> tuple[bool, str]:
+    """(quiet, reason) from error_origins and slow_operations output for a recent window."""
+    if not origins_output.startswith("No error origins"):
+        first = next((l for l in origins_output.splitlines() if l.startswith("- ")), origins_output)
+        return False, f"error origin: {first[2:][:120]}"
+    slow = next((l for l in slow_output.splitlines() if l.startswith("- [SLOW]")), None)
+    if slow:
+        return False, f"slow: {slow[9:][:120]}"
+    return True, "quiet"
+
+
+def system_is_quiet() -> tuple[bool, str]:
+    """Check the last two minutes of the live system with the agent's own tools."""
+    from sentinel.tools import error_origins, slow_operations
+
+    end = utc_now()
+    start = fmt(end - SETTLE_LOOKBACK)
+    try:
+        return assess(error_origins(start, fmt(end)), slow_operations(start, fmt(end)))
+    except Exception as exc:
+        return False, f"check failed: {type(exc).__name__}: {exc}"
+
+
+def settle(check, max_seconds: float, interval: float = SETTLE_INTERVAL_SECONDS,
+           sleep=time.sleep, clock=time.monotonic) -> tuple[bool, int]:
+    """Re-run `check` every `interval` s until it reports quiet or `max_seconds` have passed.
+
+    Returns (settled, seconds waited).
+    """
+    began = clock()
+    while True:
+        quiet, reason = check()
+        waited = clock() - began
+        if quiet:
+            return True, round(waited)
+        if waited + interval > max_seconds:
+            print(f"  still not quiet after {waited / 60:.1f} min ({reason}); running anyway",
+                  flush=True)
+            return False, round(waited)
+        print(f"  not quiet ({reason}); checking again in {interval:g} s", flush=True)
+        sleep(interval)
+
+
+def filter_schedule(schedule: list[tuple[str, int]], only: str | None) -> list[tuple[str, int]]:
+    """Keep only the runs of the named flags (or "control"), in the seeded order."""
+    if not only:
+        return schedule
+    wanted = {name.strip() for name in only.split(",") if name.strip()}
+    unknown = wanted - {*FLAGS, CONTROL}
+    if unknown:
+        sys.exit(f"--only: unknown name(s) {', '.join(sorted(unknown))}; "
+                 f"choose from {', '.join([*FLAGS, CONTROL])}")
+    return [item for item in schedule if item[0] in wanted]
+
+
 def run_one(name: str, run: int, args, incidents: dict, log_dir: Path,
             on_minutes: float) -> tuple[dict, dict]:
     """One injected (or control) run. Returns (CSV row, the agent's full result)."""
@@ -342,6 +412,10 @@ def run_one(name: str, run: int, args, incidents: dict, log_dir: Path,
         alert = incidents[name]["alert"]
         expected = incidents[name]["expected_service"]
         signal_kind = incidents[name]["signal"]
+
+    settled, settle_seconds = settle(system_is_quiet, args.max_settle_minutes * 60)
+    if settled and settle_seconds:
+        print(f"  system quiet after {settle_seconds / 60:.1f} min", flush=True)
 
     start = utc_now()
     if not is_control:
@@ -364,6 +438,8 @@ def run_one(name: str, run: int, args, incidents: dict, log_dir: Path,
         "start": fmt(start),
         "end": fmt(end),
         "fault_observed": observed,
+        "settled": settled,
+        "settle_seconds": settle_seconds,
         "incident": name,
         "run": run,
         "signal": signal_kind,
@@ -384,7 +460,19 @@ def load_live_rows(path: Path) -> list[dict]:
     rows = load_rows(path, COLUMNS)
     for row in rows:
         row["fault_observed"] = {"True": True, "False": False}.get(row["fault_observed"])
+        row["settled"] = row["settled"] == "True"
+        row["settle_seconds"] = int(row["settle_seconds"] or 0)
     return rows
+
+
+def unsettled_section(rows: list[dict]) -> str:
+    """Runs that started before the system was quiet: their results are suspect."""
+    lines = [
+        f"- {r['incident']} run {r['run']} ({r['start']} to {r['end']}): waited "
+        f"{r['settle_seconds'] / 60:.1f} min, predicted {r['predicted']}"
+        for r in rows if not r["settled"]
+    ]
+    return "\n".join(lines) or "None: every run started on a quiet system."
 
 
 def observed_accuracy_row(rows: list[dict]) -> tuple[str, str]:
@@ -436,6 +524,8 @@ def write_markdown(csv_path: Path, args, log_dir: Path) -> tuple[Path, str]:
         markdown_table(("Flag", "Variant", "Expected", "Correct", "Predictions"), per_flag_rows(rows)),
         "## Faults not observed",
         unobserved_section(rows),
+        "## Runs that never settled",
+        unsettled_section(rows),
         "## Ungrounded quotes",
         ungrounded_section(rows),
         "## Setup",
@@ -445,7 +535,9 @@ def write_markdown(csv_path: Path, args, log_dir: Path) -> tuple[Path, str]:
             f"- Runs: {RUNS_PER_FLAG} per flag, {CONTROL_RUNS} controls; seed {args.seed}",
             f"- Fault on: {args.on_minutes} min "
             + ", ".join(f"({k}: {v} min)" for k, v in ON_MINUTES_OVERRIDE.items()),
-            f"- Export wait: {EXPORT_WAIT_SECONDS} s; cooldown: {args.cooldown_minutes} min",
+            f"- Export wait: {EXPORT_WAIT_SECONDS} s; cooldown: {args.cooldown_minutes} min; "
+            f"settle: up to {args.max_settle_minutes} min, checked every {SETTLE_INTERVAL_SECONDS} s",
+            f"- Runs selected: {args.only or 'all'}",
             f"- Load generator users: {args.users}; "
             f"{INTL_ORDERS} extra orders to Canada during intlShippingSlowdown",
             f"- Date (UTC): {datetime.now(UTC):%Y-%m-%d %H:%M}",
@@ -469,8 +561,10 @@ def print_schedule(todo: list[tuple[str, int]], args) -> None:
         clock += timedelta(minutes=minutes)
     total = sum(run_minutes(n, args.on_minutes, args.cooldown_minutes) for n, _ in todo)
     print(f"\n{len(todo)} runs, about {total / 60:.1f} hours "
-          f"(assuming {INVESTIGATION_ESTIMATE_MINUTES} min per investigation); "
-          f"would finish around {clock:%H:%M} UTC if started now.")
+          f"(assuming {INVESTIGATION_ESTIMATE_MINUTES} min per investigation and a quiet "
+          f"system); would finish around {clock:%H:%M} UTC if started now.\n"
+          f"Waiting for a quiet system can add up to {args.max_settle_minutes:g} min per run "
+          f"({len(todo) * args.max_settle_minutes / 60:.1f} hours at most).")
 
 
 def _interrupt(signum, frame):
@@ -512,6 +606,44 @@ def smoke(args, incidents: dict) -> None:
     print(json.dumps(result, indent=2))
 
 
+def check_checkout_flag(args) -> int:
+    """Does checkout honour flagd? paymentUnreachable on, one order, look for the failed call."""
+    print("Checkout flag check: paymentUnreachable on, one order through the shop, "
+          f"then up to {CHECK_MAX_WAIT_SECONDS} s for its spans.")
+    if args.dry_run:
+        return 0
+    if not args.flags_file.exists():
+        sys.exit(f"flags file not found: {args.flags_file}")
+    switched_on = flags_not_off(args.flags_file)
+    if switched_on:
+        sys.exit(f"These flags are not off; switch them off first: {', '.join(switched_on)}")
+
+    start = utc_now()  # count only spans from after the flag went on
+    signal.signal(signal.SIGTERM, _interrupt)
+    try:
+        set_variant(args.flags_file, "paymentUnreachable", "on")
+        print("  paymentUnreachable -> on", flush=True)
+        time.sleep(FLAG_RELOAD_SECONDS)
+        print(f"  order: {place_intl_order(args.shop)}", flush=True)
+    finally:
+        all_off(args.flags_file)
+
+    waited = 0
+    while True:
+        observed = fault_observed("paymentUnreachable", fmt(start), fmt(utc_now() + timedelta(seconds=1)))
+        if observed or waited >= CHECK_MAX_WAIT_SECONDS:
+            break
+        time.sleep(CHECK_POLL_SECONDS)
+        waited += CHECK_POLL_SECONDS
+
+    if observed:
+        print("PASS: checkout made a failing call to PaymentService while the flag was on.")
+        return 0
+    print("FAIL: no failing checkout -> PaymentService call found. Checkout may not be "
+          "reading flags from flagd (or spans are not reaching ClickHouse).")
+    return 1
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Inject failures into the live demo and investigate them.")
     parser.add_argument("--seed", type=int, default=42, help="Shuffle seed (default 42)")
@@ -525,6 +657,11 @@ def main() -> None:
                         help=f"One {SMOKE_ON_MINUTES}-minute run of FLAG; prints the result, writes no CSV")
     parser.add_argument("--out", default=str(ROOT / "results"), help="Output directory (default results/)")
     parser.add_argument("--resume", help="Existing live results CSV to continue")
+    parser.add_argument("--only", help='Comma-separated flags to run; "control" for control runs')
+    parser.add_argument("--max-settle-minutes", type=float, default=10,
+                        help="Longest wait for a quiet system before each run (default 10)")
+    parser.add_argument("--check-checkout-flag", action="store_true",
+                        help="Check that checkout honours paymentUnreachable, print PASS/FAIL")
     parser.add_argument("--dry-run", action="store_true", help="Print the schedule; touch nothing")
     args = parser.parse_args()
 
@@ -534,6 +671,8 @@ def main() -> None:
     if missing:
         sys.exit(f"eval/incidents.csv has no alert for: {', '.join(missing)}")
 
+    if args.check_checkout_flag:
+        sys.exit(check_checkout_flag(args))
     if args.smoke:
         smoke(args, incidents)
         return
@@ -546,7 +685,7 @@ def main() -> None:
         csv_path = Path(args.out) / f"live_eval_{datetime.now(UTC):%Y%m%dT%H%M%SZ}.csv"
     log_dir = RUNS_DIR / csv_path.stem
 
-    schedule = build_schedule(args.seed)
+    schedule = filter_schedule(build_schedule(args.seed), args.only)
     todo = remaining(schedule, load_live_rows(csv_path))
     print(f"{len(schedule) - len(todo)} of {len(schedule)} runs already done, {len(todo)} remaining.")
 

@@ -8,6 +8,7 @@ FROM otel_logs
 WHERE Timestamp >= {start:DateTime} AND Timestamp < {end:DateTime}
   AND SeverityNumber >= 13
   AND ServiceName != 'otelcol-contrib'
+  AND ServiceName != 'load-generator'
 GROUP BY ServiceName, pattern
 ORDER BY n DESC
 LIMIT 20
