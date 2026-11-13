@@ -30,7 +30,7 @@ flowchart LR
 |---|---|---|
 | `error_origins` | Where did the errors start? | The deepest error spans. A Client span whose callee answered is dropped; a Client span that got no answer points at the callee. |
 | `slow_operations` | What is slow? | Ranks operations by p95 **self** time (own duration minus child spans) and marks `[SLOW]` at 1,000 ms or more. |
-| `error_logs` | What did services log? | Warning and error log patterns (SeverityNumber ≥ 17), each with an example trace id. |
+| `error_logs` | What did services log? | Warning and error log patterns (SeverityNumber ≥ 13: warnings and errors), each with an example trace id. |
 | `get_trace` | What happened in one request? | A span tree trimmed to the paths that lead to errors. |
 
 Every tool is one parameterised SQL file in [queries/](queries/), run as a read-only ClickHouse user.
@@ -75,7 +75,7 @@ The full list is in [DECISIONS.md](DECISIONS.md).
 2. **HTTP 4xx breaks the error chain.** A 4xx marks only the client span as an error, so "deepest error span" lands on the caller at every HTTP hop. `error_origins` therefore drops Client error spans whose callee responded.
 3. **Timeouts are symptoms.** frontend-proxy spans with no error message, and "deadline exceeded" or "context canceled" errors, point at whoever gave up, not at the cause. They send the agent to the latency tool.
 4. **Self time, not total time.** By total time, every caller up the chain looks as slow as the service it waits on. Ranking by p95 self time puts the slow service first.
-5. **Don't let the model judge "slow".** In an earlier offline run, given identical evidence, the model answered `none` once and blamed checkout (about 370 ms) another time. That run had 2/6 false alarms. Now the tool applies a fixed 1,000 ms threshold, and false alarms dropped to 0/6. Baselines here stay under 400 ms; incidents reach 10 s and above.
+5. **Don't let the model judge "slow".** In an earlier offline run, given identical evidence, the model answered `none` once and blamed checkout (about 370 ms) another time. That run had 1/6 false alarms (checkout) and 1 provider error (a timeout); its summary counted both as false alarms. With a fixed 1,000 ms threshold in the tool and a longer request timeout, both went to 0. Baselines here stay under 400 ms; incidents reach 10 s and above.
 6. **Logs blame the caller.** In productCatalogFailure, only the caller (frontend) logged an error; paymentFailure produced no error log at all. Logs are therefore supporting evidence, and their trace ids point back to the traces.
 7. **The load generator is noise.** It is the traffic source, not part of the system. Its own failing calls to a service that is absent in minimal mode produced false origins and `[SLOW]` lines until the tools excluded it.
 8. **Faults outlive their flags.** After cartFailure is switched off, cart stays slow (about 2.5 s `GetCart`) and keeps losing redis for several minutes. Control runs that followed weren't real controls until the live eval gained a health gate.
@@ -137,14 +137,49 @@ The full list is in [DECISIONS.md](DECISIONS.md).
 
 ## Run it yourself
 
-**Prerequisites:** Docker, [uv](https://docs.astral.sh/uv/), Python 3.12+, a [Together](https://www.together.ai/) API key, and a checkout of the OpenTelemetry demo at `~/opentelemetry-demo`.
+There are two paths. The **offline path** (tests, one saved incident, offline eval) needs only ClickHouse, started with `infra/start_clickhouse.sh`. The **live path** (live data and the live eval) also needs the OpenTelemetry demo. Steps 1–4 are the offline path and never start the demo.
+
+**Prerequisites:** Docker, [uv](https://docs.astral.sh/uv/), Python 3.12+ and a [Together](https://www.together.ai/) API key. The live path also needs a checkout of the OpenTelemetry demo at `~/opentelemetry-demo`.
 
 ```bash
 echo "TOGETHER_API_KEY=..." > .env
 uv sync
 ```
 
-**1. Start the demo with the ClickHouse exporter.** Copy the two extras files into the demo:
+### Offline path
+
+**1. Start ClickHouse.** The script creates the read-only user `spanhound_ro`, and creates the demo's Docker network `opentelemetry-demo` if it doesn't exist yet, so the demo isn't needed.
+
+```bash
+infra/start_clickhouse.sh
+```
+
+**2. Run the tests.** The database tests load the fixtures into `otel_test` and are skipped if ClickHouse isn't reachable.
+
+```bash
+uv run pytest -q
+```
+
+**3. Investigate one saved incident.** This loads the paymentFailure fixtures into `otel_test` and points the agent at that database.
+
+```bash
+uv run python scripts/load_fixture.py paymentFailure
+SPANHOUND_CH_DATABASE=otel_test uv run python scripts/investigate.py \
+  --alert "Customers report that checkout fails" \
+  --start "2026-11-10 15:52:00" --end "2026-11-10 15:54:00"
+```
+
+The expected answer is `payment`. The agent connects as `spanhound_ro`, which can read `otel_test` through the grant in [infra/clickhouse/spanhound_ro.xml](infra/clickhouse/spanhound_ro.xml).
+
+**4. Run the offline eval.** It replays every saved incident from `fixtures/`.
+
+```bash
+uv run python eval/run_eval.py --runs 3
+```
+
+### Live path
+
+**5. Start the demo with the ClickHouse exporter.** Copy the two extras files into the demo. ClickHouse from step 1 can keep running; the demo joins the same network.
 
 ```bash
 cp infra/compose.extras.yaml ~/opentelemetry-demo/compose.extras.yaml
@@ -152,29 +187,9 @@ cp infra/otelcol-config-extras.yml ~/opentelemetry-demo/src/otel-collector/otelc
 cd ~/opentelemetry-demo && make start-minimal
 ```
 
-**2. Start ClickHouse.** The script needs the demo's Docker network, so run it after the demo is up. It creates the read-only user `spanhound_ro`.
+**6. Run the live eval.** It edits the demo's flag file and takes about 3 hours; `--dry-run` prints the schedule only.
 
 ```bash
-infra/start_clickhouse.sh
-```
-
-**3. Run the tests.** The database tests load the fixtures into `otel_test` and are skipped if ClickHouse isn't reachable.
-
-```bash
-uv run pytest -q
-```
-
-**4. Investigate one alert:**
-
-```bash
-uv run python scripts/investigate.py --alert "Checkout fails" \
-    --start "2026-11-10 15:52:00" --end "2026-11-10 15:54:00"
-```
-
-**5. Run the evaluations.** The live eval edits the demo's flag file and takes about 3 hours; `--dry-run` prints the schedule only.
-
-```bash
-uv run python eval/run_eval.py --runs 3                    # offline replay
 uv run python eval/live_eval.py --check-checkout-flag      # checks that flag injection works
 uv run python eval/live_eval.py --dry-run
 uv run python eval/live_eval.py                            # live fault injection
@@ -210,7 +225,7 @@ eval/
 fixtures/         saved incidents (ClickHouse Native, gzip)
 results/          eval results: CSV per run, Markdown summary
 infra/            ClickHouse start script, read-only user, demo extras
-scripts/          investigate CLI, query runner, tool-call smoke test
+scripts/          investigate CLI, fixture loader, query runner, tool-call smoke test
 tests/            pytest: tools on fixtures, agent with a fake model, eval logic
 DECISIONS.md      design decisions and why
 ground_truth.md   what each failure flag breaks

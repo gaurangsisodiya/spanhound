@@ -13,6 +13,9 @@ fi
 
 docker rm -f clickhouse >/dev/null 2>&1 || true
 
+# The demo's network; created here if missing so ClickHouse can start without the demo.
+docker network inspect opentelemetry-demo >/dev/null 2>&1 || docker network create opentelemetry-demo
+
 docker run -d \
   --name clickhouse \
   --network opentelemetry-demo \
