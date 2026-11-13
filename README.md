@@ -9,6 +9,10 @@ An AI agent that follows OpenTelemetry traces to the service that broke.
 
 Both evaluations use gpt-oss-120b on Together at temperature 0. They test the agent on the [OpenTelemetry demo shop](https://github.com/open-telemetry/opentelemetry-demo) (about 15 microservices) with its built-in failure flags.
 
+![spanhound investigating a payment outage](docs/demo.gif)
+
+One investigation on a saved incident: checkout fails because its call to payment gets no answer. There is no payment span, and the agent still blames payment. (The model's wait of about 30 s is cut from the recording.)
+
 ## How it works
 
 ```mermaid
