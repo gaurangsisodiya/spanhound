@@ -1,5 +1,7 @@
 # Decisions
 
+The project was called Sentinel until v1.0; older entries use sentinel names (sentinel_ro, SENTINEL_*). Current names: spanhound_ro, SPANHOUND_*.
+
 - Exclude flagd EventStream spans from latency and error queries: they are 10-minute streaming connections that end with a timeout error every cycle, not requests.
 - Keep the 15:39-15:44 UTC product-catalog starvation as an unplanned incident in the eval notes (all flags off). Culprit: product-catalog, not recommendation.
 - error_origins drops Client error spans whose callee responded (HTTP 4xx marks only the client span as an error, so the error chain breaks at each HTTP hop).
@@ -9,7 +11,7 @@
 - error_origins is the primary error tool; error_rate can rank callers above the culprit because services emit different numbers of healthy spans per request (adFailure: ad 5.7%, frontend-proxy 11.4%).
 - Error text may be in Events (exception.message), not StatusMessage; evidence summaries must read both.
 - Logs are supporting evidence, not the primary signal: services choose what to log (productCatalogFailure: only the caller frontend logged an error; paymentFailure: no error log at all). error_logs returns an example TraceId per pattern so the agent can confirm in the trace.
-- error_logs filters SeverityNumber >= 17, not SeverityText (spellings vary by language). Unlabelled lines are Envoy access logs and database logs, already covered by traces.
+- error_logs filters SeverityNumber >= 13 (warnings and errors), not SeverityText (spellings vary by language). It was >= 17 until payment's warning-level failure log was missed. Unlabelled lines are Envoy access logs and database logs, already covered by traces.
 - Table names in queries are unqualified; the database comes from SENTINEL_CH_DATABASE so tests can use a separate otel_test database.
 - error_origins breaks count ties by preferring origins with an error message.
 - The agent runs only the first tool call per reply: gpt-oss-120b on Together wrote imaginary tool calls and results in one reply, and the server ignores parallel_tool_calls=False.
