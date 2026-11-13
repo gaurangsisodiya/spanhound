@@ -1,7 +1,7 @@
 import pytest
 from clickhouse_connect.driver.exceptions import OperationalError
 
-from sentinel.fixtures import (
+from spanhound.fixtures import (
     TEST_DB,
     admin_client as make_admin_client,
     admin_credentials,
@@ -29,9 +29,9 @@ def test_db(admin_client):
     create_test_tables(admin_client)
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("SENTINEL_CH_DATABASE", TEST_DB)
-        mp.setenv("SENTINEL_CH_USER", ADMIN_USER)
-        mp.setenv("SENTINEL_CH_PASSWORD", ADMIN_PASSWORD)
+        mp.setenv("SPANHOUND_CH_DATABASE", TEST_DB)
+        mp.setenv("SPANHOUND_CH_USER", ADMIN_USER)
+        mp.setenv("SPANHOUND_CH_PASSWORD", ADMIN_PASSWORD)
         yield
 
 

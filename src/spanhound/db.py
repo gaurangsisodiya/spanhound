@@ -10,11 +10,11 @@ MAX_WINDOW = timedelta(minutes=60)
 
 def get_client():
     return clickhouse_connect.get_client(
-        host=os.getenv("SENTINEL_CH_HOST", "localhost"),
-        port=int(os.getenv("SENTINEL_CH_PORT", "8123")),
-        username=os.getenv("SENTINEL_CH_USER", "sentinel_ro"),
-        password=os.getenv("SENTINEL_CH_PASSWORD", "sentinel_ro_dev"),
-        database=os.getenv("SENTINEL_CH_DATABASE", "otel"),
+        host=os.getenv("SPANHOUND_CH_HOST", "localhost"),
+        port=int(os.getenv("SPANHOUND_CH_PORT", "8123")),
+        username=os.getenv("SPANHOUND_CH_USER", "spanhound_ro"),
+        password=os.getenv("SPANHOUND_CH_PASSWORD", "sentinel_ro_dev"),
+        database=os.getenv("SPANHOUND_CH_DATABASE", "otel"),
     )
 
 

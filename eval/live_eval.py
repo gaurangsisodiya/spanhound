@@ -184,7 +184,7 @@ def fault_observed(name: str, start: str, end: str) -> bool | None:
     query = fault_query(name, start, end)
     if query is None:
         return True
-    from sentinel.fixtures import admin_client
+    from spanhound.fixtures import admin_client
 
     try:
         client = admin_client()
@@ -207,7 +207,7 @@ def read_flags(path: Path) -> dict:
 
 def write_flags(path: Path, data: dict) -> None:
     """Write-then-rename, like flagd-ui, so flagd never reads a half-written file."""
-    tmp = path.with_name(path.name + ".sentinel.tmp")
+    tmp = path.with_name(path.name + ".spanhound.tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
     os.chmod(tmp, path.stat().st_mode)
     os.replace(tmp, path)
@@ -358,7 +358,7 @@ def assess(origins_output: str, slow_output: str) -> tuple[bool, str]:
 
 def system_is_quiet() -> tuple[bool, str]:
     """Check the last two minutes of the live system with the agent's own tools."""
-    from sentinel.tools import error_origins, slow_operations
+    from spanhound.tools import error_origins, slow_operations
 
     end = utc_now()
     start = fmt(end - SETTLE_LOOKBACK)
@@ -449,9 +449,9 @@ def run_one(name: str, run: int, args, incidents: dict, log_dir: Path,
 
 
 def use_readonly_live_db() -> None:
-    os.environ["SENTINEL_CH_DATABASE"] = "otel"
-    os.environ["SENTINEL_CH_USER"] = "sentinel_ro"
-    os.environ["SENTINEL_CH_PASSWORD"] = os.getenv("SENTINEL_RO_PASSWORD", "sentinel_ro_dev")
+    os.environ["SPANHOUND_CH_DATABASE"] = "otel"
+    os.environ["SPANHOUND_CH_USER"] = "spanhound_ro"
+    os.environ["SPANHOUND_CH_PASSWORD"] = os.getenv("SPANHOUND_RO_PASSWORD", "sentinel_ro_dev")
 
 
 # ---------------------------------------------------------------- report
@@ -530,8 +530,8 @@ def write_markdown(csv_path: Path, args, log_dir: Path) -> tuple[Path, str]:
         ungrounded_section(rows),
         "## Setup",
         "\n".join([
-            f"- Model: {os.getenv('SENTINEL_MODEL', 'openai/gpt-oss-120b')}",
-            f"- Temperature: {os.getenv('SENTINEL_TEMPERATURE', '0')}",
+            f"- Model: {os.getenv('SPANHOUND_MODEL', 'openai/gpt-oss-120b')}",
+            f"- Temperature: {os.getenv('SPANHOUND_TEMPERATURE', '0')}",
             f"- Runs: {RUNS_PER_FLAG} per flag, {CONTROL_RUNS} controls; seed {args.seed}",
             f"- Fault on: {args.on_minutes} min "
             + ", ".join(f"({k}: {v} min)" for k, v in ON_MINUTES_OVERRIDE.items()),

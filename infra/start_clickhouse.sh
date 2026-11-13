@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # (Re)create the ClickHouse container. Run this after editing
-# infra/clickhouse/sentinel_ro.xml: a plain restart can keep the old file.
+# infra/clickhouse/spanhound_ro.xml: a plain restart can keep the old file.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RO_USER_XML="$SCRIPT_DIR/clickhouse/sentinel_ro.xml"
+RO_USER_XML="$SCRIPT_DIR/clickhouse/spanhound_ro.xml"
 
 if [ ! -f "$RO_USER_XML" ]; then
   echo "Missing $RO_USER_XML" >&2
@@ -23,7 +23,7 @@ docker run -d \
   -e CLICKHOUSE_PASSWORD=sentinel_dev \
   -p 127.0.0.1:8123:8123 \
   -v clickhouse-data:/var/lib/clickhouse \
-  -v "$RO_USER_XML":/etc/clickhouse-server/users.d/sentinel_ro.xml:ro \
+  -v "$RO_USER_XML":/etc/clickhouse-server/users.d/spanhound_ro.xml:ro \
   clickhouse/clickhouse-server:latest >/dev/null
 
 for _ in $(seq 1 30); do

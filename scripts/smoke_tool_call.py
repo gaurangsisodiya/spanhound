@@ -11,7 +11,7 @@ import sys
 import openai
 from dotenv import load_dotenv
 
-from sentinel.tools import error_origins
+from spanhound.tools import error_origins
 
 MAX_TOOL_ROUNDS = 3
 
@@ -59,7 +59,7 @@ def main() -> int:
         timeout=60,
         max_retries=2,
     )
-    model = os.getenv("SENTINEL_MODEL", "openai/gpt-oss-120b")
+    model = os.getenv("SPANHOUND_MODEL", "openai/gpt-oss-120b")
 
     messages = [
         {

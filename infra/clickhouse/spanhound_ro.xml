@@ -1,22 +1,22 @@
 <clickhouse>
     <profiles>
-        <sentinel_readonly>
+        <spanhound_readonly>
             <readonly>1</readonly>
             <max_execution_time>10</max_execution_time>
             <max_result_rows>1000</max_result_rows>
             <result_overflow_mode>break</result_overflow_mode>
-        </sentinel_readonly>
+        </spanhound_readonly>
     </profiles>
     <users>
-        <sentinel_ro>
+        <spanhound_ro>
             <password>sentinel_ro_dev</password>
-            <profile>sentinel_readonly</profile>
+            <profile>spanhound_readonly</profile>
             <quota>default</quota>
             <networks><ip>::/0</ip></networks>
             <grants>
                 <query>GRANT SELECT ON otel.*</query>
                 <query>GRANT SELECT ON otel_test.*</query>
             </grants>
-        </sentinel_ro>
+        </spanhound_ro>
     </users>
 </clickhouse>

@@ -1,4 +1,4 @@
-"""The investigator agent: an LLM that calls the tools in sentinel.tools and reports a culprit."""
+"""The investigator agent: an LLM that calls the tools in spanhound.tools and reports a culprit."""
 
 import json
 import os
@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 import openai
 
-from sentinel import tools
+from spanhound import tools
 
 MAX_RESULT_CHARS = 4000
 REPORT_KEYS = ("suspected_service", "cause", "evidence", "confidence")
@@ -216,8 +216,8 @@ def investigate(
 ) -> dict:
     """Investigate one alert. Returns the report plus run statistics."""
     client = client or default_client()
-    model = model or os.getenv("SENTINEL_MODEL", "openai/gpt-oss-120b")
-    temperature = float(os.getenv("SENTINEL_TEMPERATURE", "0"))
+    model = model or os.getenv("SPANHOUND_MODEL", "openai/gpt-oss-120b")
+    temperature = float(os.getenv("SPANHOUND_TEMPERATURE", "0"))
     started = time.monotonic()
 
     messages = [

@@ -11,7 +11,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sentinel.agent import investigate
+from spanhound.agent import investigate
 
 RUNS_DIR = Path(__file__).resolve().parents[1] / "runs"
 
@@ -21,7 +21,7 @@ def print_step(step: dict) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Investigate an alert with the sentinel agent.")
+    parser = argparse.ArgumentParser(description="Investigate an alert with the spanhound agent.")
     parser.add_argument("--alert", required=True, help="What was reported")
     parser.add_argument("--start", required=True, help="Window start, UTC, YYYY-MM-DD HH:MM:SS")
     parser.add_argument("--end", required=True, help="Window end, UTC, YYYY-MM-DD HH:MM:SS")

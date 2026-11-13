@@ -2,7 +2,7 @@
 
 import pytest
 
-from sentinel import tools
+from spanhound import tools
 
 WINDOW = ("2026-11-10 15:46:00", "2026-11-10 15:52:00")
 CLIENT_NOTE = "[client call:"

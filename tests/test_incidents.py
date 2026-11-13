@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from helpers import first_result_line, points_to
-from sentinel.tools import error_logs, error_origins, get_trace, slow_operations
+from spanhound.tools import error_logs, error_origins, get_trace, slow_operations
 
 INCIDENTS_CSV = Path(__file__).resolve().parents[1] / "eval" / "incidents.csv"
 

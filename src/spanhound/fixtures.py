@@ -18,8 +18,8 @@ TABLES = ("otel_traces", "otel_logs")
 def admin_credentials() -> tuple[str, str]:
     """(user, password) with write access. Read at call time, so a loaded .env counts."""
     return (
-        os.getenv("SENTINEL_TEST_ADMIN_USER", "default"),
-        os.getenv("SENTINEL_TEST_ADMIN_PASSWORD", "sentinel_dev"),
+        os.getenv("SPANHOUND_TEST_ADMIN_USER", "default"),
+        os.getenv("SPANHOUND_TEST_ADMIN_PASSWORD", "sentinel_dev"),
     )
 
 

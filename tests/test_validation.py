@@ -1,7 +1,7 @@
 import pytest
 
-from sentinel.db import check_window
-from sentinel.tools import get_trace
+from spanhound.db import check_window
+from spanhound.tools import get_trace
 
 
 @pytest.mark.parametrize(

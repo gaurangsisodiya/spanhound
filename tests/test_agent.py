@@ -7,7 +7,7 @@ import httpx2
 import openai
 import pytest
 
-from sentinel import agent
+from spanhound import agent
 
 REPORT = {
     "suspected_service": "payment",

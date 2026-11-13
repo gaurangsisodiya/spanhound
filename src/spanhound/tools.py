@@ -1,6 +1,6 @@
 import re
 
-from sentinel.db import check_window, run_query
+from spanhound.db import check_window, run_query
 
 SLOW_MS = 1000  # p95 self time at or above this is marked [SLOW]
 

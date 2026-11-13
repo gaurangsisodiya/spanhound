@@ -46,21 +46,21 @@ def read_incidents(only: str | None) -> list[dict]:
 
 def use_readonly_test_db() -> None:
     """Point the agent's tools at otel_test as the read-only user, and check it can read."""
-    os.environ["SENTINEL_CH_DATABASE"] = "otel_test"
-    os.environ["SENTINEL_CH_USER"] = "sentinel_ro"
-    os.environ["SENTINEL_CH_PASSWORD"] = os.getenv("SENTINEL_RO_PASSWORD", "sentinel_ro_dev")
+    os.environ["SPANHOUND_CH_DATABASE"] = "otel_test"
+    os.environ["SPANHOUND_CH_USER"] = "spanhound_ro"
+    os.environ["SPANHOUND_CH_PASSWORD"] = os.getenv("SPANHOUND_RO_PASSWORD", "sentinel_ro_dev")
     try:
         client = clickhouse_connect.get_client(
-            host=os.getenv("SENTINEL_CH_HOST", "localhost"),
-            port=int(os.getenv("SENTINEL_CH_PORT", "8123")),
-            username=os.environ["SENTINEL_CH_USER"],
-            password=os.environ["SENTINEL_CH_PASSWORD"],
+            host=os.getenv("SPANHOUND_CH_HOST", "localhost"),
+            port=int(os.getenv("SPANHOUND_CH_PORT", "8123")),
+            username=os.environ["SPANHOUND_CH_USER"],
+            password=os.environ["SPANHOUND_CH_PASSWORD"],
         )
         client.query("SELECT count() FROM otel_test.otel_traces")
     except Exception as exc:
         sys.exit(
             "The read-only user cannot read otel_test. Was ClickHouse restarted after "
-            f"adding the otel_test grant to infra/clickhouse/sentinel_ro.xml?\n  {exc}"
+            f"adding the otel_test grant to infra/clickhouse/spanhound_ro.xml?\n  {exc}"
         )
 
 
@@ -74,7 +74,7 @@ def git_commit() -> str:
 
 def safe_investigate(alert: str, start: str, end: str, log_path: Path) -> dict:
     """investigate(), but a crash becomes an "exception" result instead of ending the eval."""
-    from sentinel.agent import investigate
+    from spanhound.agent import investigate
 
     try:
         return investigate(alert, start, end, log_path=str(log_path))
@@ -144,7 +144,7 @@ def summary_rows(rows: list[dict]) -> list[tuple[str, str]]:
     seconds = [r["seconds"] for r in rows]
     tokens = [r["prompt_tokens"] + r["completion_tokens"] for r in rows]
 
-    price_in, price_out = os.getenv("SENTINEL_PRICE_IN"), os.getenv("SENTINEL_PRICE_OUT")
+    price_in, price_out = os.getenv("SPANHOUND_PRICE_IN"), os.getenv("SPANHOUND_PRICE_OUT")
     if price_in and price_out:
         costs = [
             (r["prompt_tokens"] * float(price_in) + r["completion_tokens"] * float(price_out)) / 1e6
@@ -152,7 +152,7 @@ def summary_rows(rows: list[dict]) -> list[tuple[str, str]]:
         ]
         cost = f"${statistics.mean(costs):.4f}"
     else:
-        cost = "not set (SENTINEL_PRICE_IN / SENTINEL_PRICE_OUT)"
+        cost = "not set (SPANHOUND_PRICE_IN / SPANHOUND_PRICE_OUT)"
 
     return [
         ("Fault accuracy, all fault runs", rate(sum(r["correct"] for r in faults), len(faults))),
@@ -255,8 +255,8 @@ def write_markdown(csv_path: Path, runs: int, log_dir: Path) -> tuple[Path, str]
     """Build the .md report from every row in the CSV. Returns (path, summary table)."""
     rows = load_rows(csv_path)
     summary = markdown_table(("Metric", "Value"), summary_rows(rows))
-    model = os.getenv("SENTINEL_MODEL", "openai/gpt-oss-120b")  # same default as agent.py
-    temperature = os.getenv("SENTINEL_TEMPERATURE", "0")
+    model = os.getenv("SPANHOUND_MODEL", "openai/gpt-oss-120b")  # same default as agent.py
+    temperature = os.getenv("SPANHOUND_TEMPERATURE", "0")
     md = "\n\n".join([
         f"# {csv_path.stem.replace('_', ' ').capitalize()}",
         "## Summary",
@@ -310,7 +310,7 @@ def main() -> None:
 
     if todo:
         use_readonly_test_db()
-        from sentinel.fixtures import admin_client, create_test_tables, fixture_loader
+        from spanhound.fixtures import admin_client, create_test_tables, fixture_loader
 
         admin = admin_client()
         create_test_tables(admin)
